@@ -1,0 +1,39 @@
+{
+  "name": "shrooms-contracts",
+  "version": "2.0.0",
+  "description": "Fee-funded yield farm contracts for Shrooms on Elysium.",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "node": "hardhat node",
+    "fork": "hardhat node --fork https://rpc.elysium.kinetiq.xyz",
+    "deploy:mocks": "hardhat run scripts/deploy-mocks.js --network elysiumTestnet",
+    "deploy": "hardhat run scripts/deploy.js --network elysiumTestnet",
+    "deploy:timelock": "hardhat run scripts/deploy-timelock.js --network elysiumTestnet",
+    "timelock:accept": "hardhat run scripts/timelock-accept.js --network elysiumTestnet",
+    "deploy:v2": "hardhat run scripts/deploy-v2.js --network elysiumTestnet",
+    "drip": "hardhat run scripts/drip-and-fund.js --network elysiumTestnet",
+    "smoke": "hardhat run scripts/smoke-test.js --network elysiumTestnet",
+    "simulate": "node scripts/simulate-year.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.2",
+    "@nomicfoundation/hardhat-ethers": "^3.1.3",
+    "@nomicfoundation/hardhat-network-helpers": "^1.1.2",
+    "@openzeppelin/contracts": "^5.1.0",
+    "chai": "^4.5.0",
+    "ethers": "^6.17.0",
+    "hardhat": "^2.22.15",
+    "solc": "^0.8.24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Shroomshype/shrooms-contracts.git"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+artifacts/
+cache/
+coverage/
+.env
+.env.local
+deployments/*.json
+!deployments/.gitkeep
+.DS_Store
