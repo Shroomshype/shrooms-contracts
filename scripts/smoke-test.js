@@ -41,11 +41,18 @@ async function main() {
   check("farm knows the treasury", (await farm.treasury()) === d.contracts.LiquiditySpores);
 
   // ---------------------------------------------------------- funding
+  // Deliberately relative, not absolute: this has to be runnable against a
+  // live deployment that has already been dripped, not only a pristine one.
   console.log("\nTreasury");
+  const reserveBefore = await treasury.reserve();
+  const backingBefore = await treasury.backing();
+  const supplyAtStart = await spores.totalSupply();
+
   await (await me.sendTransaction({ to: d.contracts.LiquiditySpores, value: E(50) })).wait();
-  check("fees land in reserve, not backing",
-        (await treasury.reserve()) === E(50) && (await treasury.backing()) === 0n);
-  check("nothing minted before a drip", (await spores.totalSupply()) === 0n);
+
+  check("fees land in reserve", (await treasury.reserve()) === reserveBefore + E(50));
+  check("fees do not land in backing", (await treasury.backing()) === backingBefore);
+  check("sending fees mints nothing", (await spores.totalSupply()) === supplyAtStart);
 
   if (isLocal) {
     await ethers.provider.send("evm_increaseTime", [7 * 86400]);
@@ -60,9 +67,17 @@ async function main() {
   }
 
   const floorBefore0 = await treasury.backingPerSpore();
+  const reservePre = await treasury.reserve();
+  const backingPre = await treasury.backing();
+  const farmPre = await spores.balanceOf(d.contracts.ShroomsFarm);
+  const expectedMove = (reservePre * 2n) / 100n;
+
   await (await treasury.drip()).wait();
-  check("drip moved 2% of reserve", (await treasury.backing()) === E(1));
-  check("drip minted to the farm", (await spores.balanceOf(d.contracts.ShroomsFarm)) > 0n);
+
+  check("drip moved 2% of the reserve into backing",
+        (await treasury.backing()) === backingPre + expectedMove,
+        ethers.formatEther(expectedMove) + " HYPE");
+  check("drip minted to the farm", (await spores.balanceOf(d.contracts.ShroomsFarm)) > farmPre);
   check("floor did not fall", (await treasury.backingPerSpore()) >= floorBefore0);
   check("second drip is rate-limited",
         await treasury.drip().then(() => false).catch(() => true));
@@ -78,12 +93,26 @@ async function main() {
   check("gated strain refuses an unopened staker",
         await farm.stake(1, E(1)).then(() => false).catch(() => true));
 
-  // fund pool 0 so rewards actually stream
+  // fund pool 0 so rewards actually stream. notifyReward is restricted to the
+  // owner or the named distributor, so skip gracefully if this wallet is neither.
   const held = await spores.balanceOf(d.contracts.ShroomsFarm);
-  await (await farm.notifyReward(0, held / 10n)).wait();
-  check("notifyReward accepted an affordable pot", true);
-  check("notifyReward rejects an unaffordable pot",
-        await farm.notifyReward(0, held * 100n).then(() => false).catch(() => true));
+  const farmOwner = await farm.owner();
+  const rewardDist = await farm.rewardDistributor();
+  const mayNotify = [farmOwner.toLowerCase(), rewardDist.toLowerCase()].includes(me.address.toLowerCase());
+
+  if (mayNotify) {
+    await (await farm.notifyReward(0, held / 10n)).wait();
+    check("notifyReward accepted an affordable pot", true);
+    check("notifyReward rejects an unaffordable pot",
+          await farm.notifyReward(0, held * 100n).then(() => false).catch(() => true));
+  } else {
+    console.log(`  (skipped notifyReward — this wallet is neither owner nor distributor)`);
+    console.log(`   owner ${farmOwner}`);
+    console.log(`   distributor ${rewardDist}`);
+  }
+  check("a stranger cannot call notifyReward",
+        await farm.connect(ethers.Wallet.createRandom().connect(ethers.provider))
+          .notifyReward.staticCall(0, 1n).then(() => false).catch(() => true));
 
   if (isLocal) {
     await ethers.provider.send("evm_increaseTime", [3600]);

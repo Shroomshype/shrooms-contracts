@@ -1,4 +1,4 @@
-# Deploying Shrooms v2.0 to Elysium testnet
+# Deploying Shrooms v3.0 to Elysium testnet
 
 Written for whoever is doing the deploy. Follow it top to bottom. Each step says
 what you're doing, what should happen, and how to tell it worked.
@@ -27,7 +27,7 @@ Three contracts we deploy, plus a timelock that owns them.
 |---|---|
 | `LiquiditySpores` | The HYPE treasury. Receives trading fees into a reserve, drips 2% of it into backing each week, mints SPORES against that, and redeems SPORES back for HYPE. Creates the SPORES token itself in its constructor. |
 | `SporesToken` | SPORES. No owner, no pause. The treasury is the only address that can mint, fixed at construction with no setter. |
-| `ShroomsFarm` | Staking across 8 strains, all of them SHROOMS or SHROOMS-HYPE LP. Rewards are **not** minted here — the treasury hands them over and the farm streams them. Holds the boost mechanics. |
+| `ShroomsFarm` | Staking across 8 strains, all of them SHROOMS or SHROOMS-HYPE LP. Rewards are **not** minted here — the treasury hands them over and the farm streams them. Holds the boost mechanics and the reward-distributor role. |
 | `ShroomsTimelock` | Owns the farm. Parameter changes must be queued publicly and wait out a delay. |
 
 **The eight strains.** All stake SHROOMS or the LP; they differ by what they cost
@@ -57,7 +57,7 @@ npm install
 npm test
 ```
 
-**Expect `63 passing`.** If not, stop and report it rather than continuing.
+**Expect `73 passing`.** If not, stop and report it rather than continuing.
 
 ```bash
 cp .env.example .env
@@ -141,6 +141,16 @@ Three things must be true, and the script prints each:
 - **Several pools share the same token.** That's intentional and `add()` only
   permits it when stated explicitly. Each pool tracks its own `totalStaked`, so
   they can't interfere.
+- **`reward distributor set to …`.** This is the address allowed to run the
+  weekly split. Pass `KEEPER_ADDRESS` to point it at the keeper wallet:
+
+```bash
+KEEPER_ADDRESS=0xYourKeeperWallet npx hardhat run scripts/deploy-v2.js --network elysiumTestnet
+```
+
+  If you skip it, it defaults to the deployer — fine for now, but **set it to the
+  keeper before step 8**, because afterwards `setRewardDistributor` is owner-only
+  and becomes a timelock proposal itself.
 
 ---
 
@@ -203,17 +213,59 @@ the drip is rate-limited, that gated strains refuse unopened stakers, that
 `notifyReward` rejects a pot the farm can't afford, that rewards accrue and
 claim, that **burning raises the floor**, and that both exits return principal.
 
-**Expect `22 passed, 0 failed`.**
+**Expect `24 passed, 0 failed`.**
 
 That burn-raises-the-floor line is the one to screenshot. It's the whole pitch,
 demonstrated on chain.
 
 ---
 
-## 7. Hand ownership to the timelock
+## 7. Set up the keeper
+
+`drip()` is permissionless, so the protocol never depends on you being awake.
+But permissionless means anyone *may* call it, not that anyone *will* — and if
+nobody does, no SPORES is minted and the farm pays nothing.
+
+The keeper lives in its own repo —
+[shrooms-keeper](https://github.com/Shroomshype/shrooms-keeper).
+
+```bash
+git clone https://github.com/Shroomshype/shrooms-keeper.git
+cd shrooms-keeper
+npm install
+cp .env.example .env     # add the keeper's key and point at the deployment
+npm run dry-run          # logs what it would do, sends nothing
+npm start
+```
+
+Then schedule it. Hourly is fine and safer than weekly — it is idempotent and
+no-ops when the drip period hasn't elapsed, so a cron that fires often will never
+miss a window:
+
+```cron
+0 * * * * cd /srv/shrooms-keeper && /usr/bin/node src/keeper.js >> keeper.log 2>&1
+```
+
+Give it a **dedicated wallet** holding a few HYPE for gas and nothing else. It
+never touches user funds and never holds SPORES. The worst case if the key leaks
+is that someone calls `drip()` on your behalf — something they were already
+allowed to do.
+
+That repo's `README.md` and `QUEUEING.md` cover the permission model in full.
+
+## 8. Hand ownership to the timelock
 
 Until this runs, one private key can change strain weights and fees in a single
 transaction. Do it before anyone else touches the deployment.
+
+**Before you run this**, confirm the reward distributor is the keeper wallet:
+
+```bash
+cast call <ShroomsFarm> "rewardDistributor()(address)" --rpc-url <rpc>
+```
+
+If it still shows the deployer, fix it now — after the handover it takes a
+governance proposal.
 
 ```bash
 TIMELOCK_DELAY=3600 npx hardhat run scripts/deploy-timelock.js --network elysiumTestnet
@@ -234,7 +286,7 @@ cast call <ShroomsFarm> "owner()(address)" --rpc-url <rpc>   # == timelock
 
 ---
 
-## 8. Verify on the explorer
+## 9. Verify on the explorer
 
 Elysium runs Blockscout, not Etherscan. Config is already in `hardhat.config.js`.
 
@@ -247,10 +299,10 @@ People should be able to read what they're depositing into.
 
 ---
 
-## 9. Point the site at it
+## 10. Point the site at it
 
-Edit `js/config.js` in the [shrooms-web](https://github.com/Shroomshype/shrooms-web)
-repo with the deployed addresses from
+Edit `js/config.js` in [shrooms-web](https://github.com/Shroomshype/shrooms-web)
+with the deployed addresses from
 `deployments/elysiumTestnet.v2.json`:
 
 ```js
@@ -273,7 +325,8 @@ the burn tracker runs simulated data and says so on the page. Once set, it reads
 Serve it with anything static — there's no build step:
 
 ```bash
-cd ../shrooms-web && npx serve .
+git clone https://github.com/Shroomshype/shrooms-web.git
+cd shrooms-web && npx serve .
 ```
 
 ---
@@ -322,4 +375,4 @@ only for sandboxes with no access to the solc CDN.
    the one `deploy-v2.js` prints. All modelled figures use the treasury's half.
 4. **`notifyReward` is owner-only.** Once the timelock owns the farm, the weekly
    reward split has to be queued through it. Operate that before transferring.
-5. **The mocks must never reach mainnet.**
+6. **The mocks must never reach mainnet.**
