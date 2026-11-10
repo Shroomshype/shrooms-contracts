@@ -551,3 +551,110 @@ describe("Shared-token pools", function () {
     await farm.notifyReward(0, held / 2n); // this much is genuinely available
   });
 });
+
+/* The reward distributor role.
+
+   notifyReward was onlyOwner, which meant that once the timelock owned the farm
+   the routine weekly split needed a governance proposal. That is the wrong
+   granularity: starting a reward period with SPORES the farm already holds
+   changes no parameter and risks nothing. These cover the separation, and the
+   rate limit that stops the role being abused. */
+describe("Reward distributor", function () {
+  let owner, keeper, stranger, alice;
+  let treasury, spores, farm, shrooms;
+  const E2 = (n) => ethers.parseEther(String(n));
+  const WK = 7 * 86400;
+
+  async function fwd(s) {
+    await ethers.provider.send("evm_increaseTime", [s]);
+    await ethers.provider.send("evm_mine");
+  }
+
+  beforeEach(async function () {
+    [owner, keeper, stranger, alice] = await ethers.getSigners();
+    treasury = await (await ethers.getContractFactory("LiquiditySpores")).deploy(owner.address);
+    spores = await ethers.getContractAt("SporesToken", await treasury.spores());
+    farm = await (await ethers.getContractFactory("ShroomsFarm")).deploy(
+      await treasury.getAddress(), owner.address
+    );
+    await treasury.setDistributor(await farm.getAddress());
+    shrooms = await (await ethers.getContractFactory("TestToken")).deploy("Shrooms", "SHROOMS", 18);
+    await farm.add(await shrooms.getAddress(), WK, false, 0, false);
+
+    await treasury.fund({ value: E2(100) });
+    await fwd(WK);
+    await treasury.drip();
+
+    await shrooms.mint(alice.address, E2(1000));
+    await shrooms.connect(alice).approve(await farm.getAddress(), ethers.MaxUint256);
+    await farm.connect(alice).stake(0, E2(1000));
+  });
+
+  it("starts with no distributor set", async function () {
+    expect(await farm.rewardDistributor()).to.equal(ethers.ZeroAddress);
+  });
+
+  it("refuses an unnamed caller", async function () {
+    await expect(farm.connect(keeper).notifyReward(0, E2(1000)))
+      .to.be.revertedWithCustomError(farm, "NotAuthorisedToNotify");
+  });
+
+  it("lets the named distributor start a period", async function () {
+    await farm.setRewardDistributor(keeper.address);
+    await farm.connect(keeper).notifyReward(0, E2(1_000_000));
+    expect((await farm.pools(0)).rewardRate).to.be.gt(0);
+  });
+
+  it("still lets the owner call it, unrestricted", async function () {
+    await farm.setRewardDistributor(keeper.address);
+    await farm.notifyReward(0, E2(1_000_000));
+    // the owner is exempt from the cooldown, so a second call succeeds at once
+    await farm.notifyReward(0, E2(1_000_000));
+  });
+
+  it("rate-limits the distributor to half a period", async function () {
+    await farm.setRewardDistributor(keeper.address);
+    await farm.connect(keeper).notifyReward(0, E2(1_000_000));
+    await expect(farm.connect(keeper).notifyReward(0, E2(1_000_000)))
+      .to.be.revertedWithCustomError(farm, "NotifyTooSoon");
+
+    await fwd(WK / 2 + 1);
+    await farm.connect(keeper).notifyReward(0, E2(1_000_000)); // now fine
+  });
+
+  it("allows the intended weekly cadence comfortably", async function () {
+    await farm.setRewardDistributor(keeper.address);
+    for (let w = 0; w < 4; w++) {
+      await farm.connect(keeper).notifyReward(0, E2(500_000));
+      await fwd(WK);
+    }
+    expect((await farm.pools(0)).rewardRate).to.be.gt(0);
+  });
+
+  it("lets the owner revoke the role", async function () {
+    await farm.setRewardDistributor(keeper.address);
+    await farm.setRewardDistributor(ethers.ZeroAddress);
+    await expect(farm.connect(keeper).notifyReward(0, E2(1000)))
+      .to.be.revertedWithCustomError(farm, "NotAuthorisedToNotify");
+  });
+
+  it("only the owner may name a distributor", async function () {
+    await expect(farm.connect(stranger).setRewardDistributor(stranger.address))
+      .to.be.revertedWithCustomError(farm, "OwnableUnauthorizedAccount");
+  });
+
+  it("gives the distributor no other power", async function () {
+    await farm.setRewardDistributor(keeper.address);
+    const t = await (await ethers.getContractFactory("TestToken")).deploy("X", "X", 18);
+    await expect(farm.connect(keeper).add(await t.getAddress(), WK, false, 0, false)).to.be.reverted;
+    await expect(farm.connect(keeper).setGate(0, true, E2(1))).to.be.reverted;
+    await expect(farm.connect(keeper).setRewardDuration(0, WK)).to.be.reverted;
+    await expect(farm.connect(keeper).pause()).to.be.reverted;
+  });
+
+  it("still cannot promise SPORES the farm does not hold", async function () {
+    await farm.setRewardDistributor(keeper.address);
+    await expect(farm.connect(keeper).notifyReward(0, E2(999_000_000)))
+      .to.be.revertedWithCustomError(farm, "RewardTooHigh");
+  });
+});

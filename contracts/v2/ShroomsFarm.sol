@@ -101,6 +101,23 @@ contract ShroomsFarm is Ownable2Step, ReentrancyGuard, Pausable {
     ///         accident while wiring pools by hand.
     mapping(address => uint256) public poolsForToken;
 
+    /// @notice May call notifyReward and nothing else. This exists because
+    ///         notifyReward is an OPERATIONAL action, not a governance one: it
+    ///         starts a reward period using SPORES the farm already holds, and
+    ///         changes no parameter. Folding it into onlyOwner meant a routine
+    ///         weekly chore inherited the timelock's delay, which is the wrong
+    ///         granularity. The owner can always call it too, and can revoke
+    ///         this address at any time.
+    ///
+    ///         It cannot be permissionless: repeatedly calling notifyReward
+    ///         folds the unpaid remainder into a fresh full duration, so anyone
+    ///         could stretch the payout rate toward zero for free. Hence a named
+    ///         address, rate-limited below.
+    address public rewardDistributor;
+
+    /// @notice Last notifyReward per pool, used to rate-limit the distributor.
+    mapping(uint256 => uint64) public lastNotified;
+
     /// @notice SPORES held on behalf of lockers. Reserved: it is other people's
     ///         principal sitting in this contract, and must never be promised as
     ///         rewards. Without this, notifyReward would see locked SPORES in
@@ -115,6 +132,7 @@ contract ShroomsFarm is Ownable2Step, ReentrancyGuard, Pausable {
 
     event PoolAdded(uint256 indexed pid, address indexed token, bool gated, uint256 unlockCost);
     event RewardNotified(uint256 indexed pid, uint256 amount, uint256 duration);
+    event RewardDistributorSet(address indexed distributor);
     event Staked(address indexed user, uint256 indexed pid, uint256 amount);
     event Withdrawn(address indexed user, uint256 indexed pid, uint256 amount);
     event Claimed(address indexed user, uint256 indexed pid, uint256 amount);
@@ -138,6 +156,8 @@ contract ShroomsFarm is Ownable2Step, ReentrancyGuard, Pausable {
     error LockStillActive();
     error BadDuration();
     error RewardTooHigh();
+    error NotAuthorisedToNotify();
+    error NotifyTooSoon(uint256 readyAt);
     error NothingToKick();
 
     constructor(LiquiditySpores treasury_, address owner_) Ownable(owner_) {
@@ -460,10 +480,22 @@ contract ShroomsFarm is Ownable2Step, ReentrancyGuard, Pausable {
     ///         Reverts if it has not, so a pool can never promise what it does
     ///         not hold — the single most common failure in forked farms.
     function notifyReward(uint256 pid, uint256 amount)
-        external onlyOwner updateReward(pid, address(0))
+        external updateReward(pid, address(0))
     {
         if (pid >= pools.length) revert BadPool();
         Pool storage p = pools[pid];
+
+        if (msg.sender != owner()) {
+            if (msg.sender != rewardDistributor) revert NotAuthorisedToNotify();
+            // Rate-limit the distributor. Each call folds the unpaid remainder
+            // into a fresh full duration, so an unbounded caller could restart
+            // periods repeatedly and dilute the payout rate toward zero. Half a
+            // period leaves ample room for the intended weekly cadence while
+            // capping how far a compromised key could stretch it.
+            uint256 readyAt = uint256(lastNotified[pid]) + (p.rewardDuration / 2);
+            if (block.timestamp < readyAt) revert NotifyTooSoon(readyAt);
+        }
+        lastNotified[pid] = uint64(block.timestamp);
 
         if (block.timestamp >= p.periodFinish) {
             p.rewardRate = amount / p.rewardDuration;
@@ -490,6 +522,14 @@ contract ShroomsFarm is Ownable2Step, ReentrancyGuard, Pausable {
         Pool storage p = pools[pid];
         require(block.timestamp >= p.periodFinish, "period running");
         p.rewardDuration = duration;
+    }
+
+    /// @notice Name the address allowed to start reward periods. Set it to the
+    ///         keeper so the weekly split does not need a timelock proposal.
+    ///         Setting it to address(0) disables the role entirely.
+    function setRewardDistributor(address d) external onlyOwner {
+        rewardDistributor = d;
+        emit RewardDistributorSet(d);
     }
 
     function setGate(uint256 pid, bool gated, uint256 unlockCost) external onlyOwner {

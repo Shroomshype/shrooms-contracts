@@ -44,7 +44,14 @@ async function main() {
   // Without this, drip() sends newly minted SPORES to the owner instead of the
   // farm, and nothing can be claimed. Easiest step to forget.
   await (await treasury.setDistributor(farmAddr)).wait();
-  console.log(`                 distributor set to the farm`);
+  console.log(`                 treasury distributor set to the farm`);
+
+  // Name the keeper as reward distributor so the weekly split does not need a
+  // timelock proposal once governance takes over. Defaults to the deployer,
+  // which is fine pre-timelock; point KEEPER_ADDRESS at the keeper wallet.
+  const keeper = process.env.KEEPER_ADDRESS || deployer.address;
+  await (await farm.setRewardDistributor(keeper)).wait();
+  console.log(`                 reward distributor set to ${keeper}`);
 
   // --------------------------------------------------------------- pools
   const mocks = loadMocks();
@@ -114,9 +121,13 @@ NEXT
        npx hardhat run scripts/drip-and-fund.js --network ${network.name}
      which calls drip() and hands each pool its share with notifyReward().
 
-  3. npx hardhat run scripts/deploy-timelock.js --network ${network.name}
+  3. Point KEEPER_ADDRESS at the keeper wallet and re-run setRewardDistributor
+     if you have not already — otherwise the weekly split needs a timelock
+     proposal once step 4 completes.
 
-  4. Paste the addresses into site/js/config.js so the site reads live data.
+  4. npx hardhat run scripts/deploy-timelock.js --network ${network.name}
+
+  5. Paste the addresses into site/js/config.js so the site reads live data.
 `);
 }
 

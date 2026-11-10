@@ -182,9 +182,12 @@ of per-strain allocation.
 If it says *"drip not ready"*, the 7-day period hasn't elapsed. On a live testnet
 you wait — there's no fast-forward on a real chain.
 
-> In production, step 1 should be a cron job or Chainlink upkeep. Step 2 is
-> owner-only, so once the timelock owns the farm it must be queued through the
-> timelock. **Decide how that gets operated before you transfer ownership.**
+> In production both steps belong to [shrooms-keeper](https://github.com/Shroomshype/shrooms-keeper).
+> `drip()` is permissionless; `notifyReward()` is restricted to the owner or the
+> named **reward distributor**. Set `KEEPER_ADDRESS` before deploying, or call
+> `setRewardDistributor(keeper)` afterwards, and the weekly split keeps working
+> without a timelock proposal. The distributor can do nothing else, and the
+> timelock can revoke it at any time.
 
 ---
 

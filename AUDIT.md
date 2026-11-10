@@ -7,7 +7,8 @@ hold value rather than to the landing page.
 
 | Priority | Path | Lines | Why |
 |---|---|---|---|
-| 1 | `contracts/SporeFarm.sol` | ~310 | Holds all deposits. Reward accounting is the core risk. |
+| 1 | `contracts/v2/ShroomsFarm.sol` | ~520 | Holds all deposits. Reward accounting, boosts and the distributor role. |
+| 1 | `contracts/v2/LiquiditySpores.sol` | ~250 | Holds all HYPE. The backing invariant lives here. |
 | 2 | `contracts/SporeVault.sol` | ~230 | Share maths; first-depositor and donation attacks live here. |
 | 3 | `contracts/SporeToken.sol` | ~40 | Mint authority and the supply cap. |
 | 4 | `contracts/ShroomsTimelock.sol` | ~30 | Thin wrapper over OZ `TimelockController`; check the role wiring in `scripts/deploy-timelock.js`. |
