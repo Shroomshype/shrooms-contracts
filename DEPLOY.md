@@ -301,7 +301,7 @@ People should be able to read what they're depositing into.
 
 ## 10. Point the site at it
 
-Edit `js/config.js` in [shrooms-web](https://github.com/Shroomshype/shrooms-web)
+Edit `js/config.js` in [Website](https://github.com/Shroomshype/Website)
 with the deployed addresses from
 `deployments/elysiumTestnet.v2.json`:
 
@@ -325,8 +325,8 @@ the burn tracker runs simulated data and says so on the page. Once set, it reads
 Serve it with anything static — there's no build step:
 
 ```bash
-git clone https://github.com/Shroomshype/shrooms-web.git
-cd shrooms-web && npx serve .
+git clone https://github.com/Shroomshype/Website.git
+cd Website && npx serve .
 ```
 
 ---
