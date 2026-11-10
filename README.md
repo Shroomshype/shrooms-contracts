@@ -21,7 +21,7 @@ which is the one decision everything else here follows from.
 | Status | **unaudited** — testnet only |
 
 Related: [shrooms-keeper](https://github.com/Shroomshype/shrooms-keeper) ·
-[Website](https://github.com/Shroomshype/Website) ·
+[shrooms-web](https://github.com/Shroomshype/shrooms-web) ·
 [X](https://x.com/Shroomshype) · [Telegram](https://t.me/shroomshype)
 
 ---
@@ -146,7 +146,7 @@ test/              73 tests
 
 The off-chain pieces live in their own repos:
 [shrooms-keeper](https://github.com/Shroomshype/shrooms-keeper) calls the weekly
-drip; [Website](https://github.com/Shroomshype/Website) is the front end
+drip; [shrooms-web](https://github.com/Shroomshype/shrooms-web) is the front end
 and the wagmi integration layer.
 
 ## Design decisions
